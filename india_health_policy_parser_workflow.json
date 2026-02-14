@@ -69,6 +69,8 @@
     {
       "parameters": {
         "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ (() => { const mime = ($json.file_meta?.mime || '').toLowerCase(); const name = ($json.file_meta?.filename || '').toLowerCase(); if (mime.includes('pdf') || name.endsWith('.pdf')) return 0; if (mime.includes('word') || mime.includes('officedocument.wordprocessingml') || name.endsWith('.docx')) return 1; return 2; })() }}"
         "output": "={{$json.file_meta.mime || ''}}",
         "rules": [
           {
