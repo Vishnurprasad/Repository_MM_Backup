@@ -80,7 +80,7 @@
             "value": "word"
           }
         ],
-        "fallbackOutput": "other"
+        "fallbackOutput": 2
       },
       "id": "5",
       "name": "File Type Router",
