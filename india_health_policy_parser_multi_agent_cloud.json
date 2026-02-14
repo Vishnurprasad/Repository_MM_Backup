@@ -417,10 +417,10 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "Deep Extractor (India Policy -> Schema JSON). Use full extracted_text + scanner + user_context. Return STRICT JSON matching exact schema.",
-        "hasOutputParser": true,
+        "text": "Deep Extractor (India Policy -> Schema JSON). Use full extracted_text + file_meta + scanner.detected + user_context. Return JSON object only (no markdown, no prose). Use null for unknowns.",
+        "hasOutputParser": false,
         "options": {
-          "systemMessage": "No hallucination. Unknown null. Keep source_ref snippets where possible."
+          "systemMessage": "Output raw JSON only. Do not wrap in code fences. Prefer exact field names from downstream schema."
         }
       },
       "id": "deep_extractor",
@@ -447,7 +447,7 @@
     },
     {
       "parameters": {
-        "jsCode": "function ensure(obj, key, defVal){ if(!(key in obj)) obj[key]=defVal; }\nreturn $input.all().map((item)=>{\n  const p = typeof item.json === 'string' ? JSON.parse(item.json) : (item.json.policy_json || item.json);\n  ensure(p, 'notes', {});\n  ensure(p.notes, 'missing_or_unclear', []);\n  ensure(p.notes, 'conflicts', []);\n  ensure(p.notes, 'assumptions', []);\n  ensure(p.notes, 'extraction_warnings', []);\n  return {json: {...item.json, policy_json: p}};\n});"
+        "jsCode": "function extractJson(raw) {\n  if (raw && typeof raw === 'object') return raw;\n  const s = String(raw || '').trim();\n  try { return JSON.parse(s); } catch {}\n  const start = s.indexOf('{');\n  const end = s.lastIndexOf('}');\n  if (start !== -1 && end !== -1 && end > start) {\n    const sub = s.slice(start, end + 1);\n    try { return JSON.parse(sub); } catch {}\n  }\n  return {};\n}\n\nconst TEMPLATE = {\n  document_classification: { is_health_insurance: null, india_market: true, document_type: null, confidence: { overall: null, rationale: null } },\n  policy_metadata: { insurer_name: null, product_name: null, uin: null, plan_name: null, policy_type: null, individual_or_floater: null, policy_number: null, certificate_number: null, tpa_name: null, network: { cashless_available: null, network_name_or_partner: null, non_network_reimbursement_allowed: null }, policy_period: { start_date: null, end_date: null }, geography: { zone_or_city_tier: null, india_state: null, city: null }, sum_insured: { raw: null, amount: null, currency: 'INR', type: null }, insured_members: { count: null, relationships: null, entry_age_rules: null } },\n  premium_and_tax: { premium: { raw: null, amount: null, currency: 'INR', frequency: null }, gst_or_taxes: { raw: null, rate: null }, loadings_or_discounts: [] },\n  cost_sharing: { deductible: { raw: null, amount: null, currency: 'INR', per: null, notes: null }, co_pay: [], coinsurance: [] },\n  waiting_periods: { initial_waiting_period: { raw: null, accident_exception: null, source_ref: null }, ped_waiting_period: { raw: null, definition_of_ped: null, source_ref: null }, maternity_waiting_period: { raw: null, source_ref: null }, specific_disease_waiting_periods: [] },\n  limits_and_sublimits: { room_rent: { raw: null, type: null, notes: null, source_ref: null }, icu_rent: { raw: null, type: null, notes: null, source_ref: null }, procedure_or_disease_sublimits: [], ambulance_limit: { limit_raw: null, source_ref: null }, ayush_limit: { limit_raw: null, source_ref: null }, cataract_limit: { limit_raw: null, source_ref: null }, opd_limit: { limit_raw: null, source_ref: null }, annual_or_lifetime_limits: [] },\n  benefits: { hospitalization_inpatient: { covered: null, notes: null, source_ref: null }, pre_hospitalization: { covered: null, duration_raw: null, source_ref: null }, post_hospitalization: { covered: null, duration_raw: null, source_ref: null }, daycare: { covered: null, definition_or_list: null, source_ref: null }, domiciliary_hospitalization: { covered: null, conditions: null, source_ref: null }, modern_treatments: { covered: null, limits_or_list: null, source_ref: null }, organ_donor: { covered: null, limit_raw: null, source_ref: null }, maternity: { covered: null, limit_raw: null, newborn_covered: null, newborn_waiting_or_conditions: null, source_ref: null }, mental_health: { covered: null, notes: null, source_ref: null }, ayush: { covered: null, notes: null, source_ref: null }, health_checkups: { covered: null, frequency_raw: null, limit_raw: null, source_ref: null }, vaccination: { covered: null, limit_raw: null, source_ref: null }, teleconsultation: { covered: null, limit_raw: null, source_ref: null }, restoration_or_reload: { available: null, type: null, conditions: null, usage_rules: null, source_ref: null }, no_claim_bonus: { available: null, accrual_raw: null, max_raw: null, reduction_rules: null, source_ref: null } },\n  exclusions: { standard_exclusions: [], product_specific_exclusions: [], permanent_exclusions_or_ped_exclusions: [], non_medical_items_consumables: { covered_or_excluded: null, notes: null, source_ref: null } },\n  claims_and_admin: { cashless_process: null, reimbursement_process: null, claim_intimation_timeline: null, document_submission_timeline: null, claim_settlement_timeline: null, free_look_period: null, renewal_and_grace_period: null, portability: null, migration: null, cancellation_refund: null, customer_support: { insurer_helpline: null, tpa_helpline: null, email: null, website: null, address: null } },\n  plan_variants: [],\n  notes: { missing_or_unclear: [], conflicts: [], assumptions: [], extraction_warnings: [] },\n  source_map: []\n};\n\nfunction mergeWithTemplate(template, data) {\n  if (Array.isArray(template)) {\n    return Array.isArray(data) ? data : [];\n  }\n  if (template && typeof template === 'object') {\n    const out = {};\n    const src = (data && typeof data === 'object') ? data : {};\n    for (const k of Object.keys(template)) out[k] = mergeWithTemplate(template[k], src[k]);\n    return out;\n  }\n  if (data === undefined) return template;\n  return data;\n}\n\nreturn $input.all().map((item) => {\n  const raw = item.json.policy_json ?? item.json.output ?? item.json.text ?? item.json.response ?? item.json.result ?? item.json;\n  const parsed = extractJson(raw);\n  const policy = mergeWithTemplate(TEMPLATE, parsed);\n  if (!policy.notes) policy.notes = { missing_or_unclear: [], conflicts: [], assumptions: [], extraction_warnings: [] };\n  if (!Array.isArray(policy.notes.missing_or_unclear)) policy.notes.missing_or_unclear = [];\n  if (!Array.isArray(policy.notes.conflicts)) policy.notes.conflicts = [];\n  if (!Array.isArray(policy.notes.assumptions)) policy.notes.assumptions = [];\n  if (!Array.isArray(policy.notes.extraction_warnings)) policy.notes.extraction_warnings = [];\n  return { json: { ...item.json, policy_json: policy } };\n});"
       },
       "id": "validator_repair",
       "name": "Validator/Repair",
@@ -867,17 +867,6 @@
           {
             "node": "Deep Extractor",
             "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deep Output Parser": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "Deep Extractor",
-            "type": "ai_outputParser",
             "index": 0
           }
         ]
