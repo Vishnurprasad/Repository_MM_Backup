@@ -1,0 +1,824 @@
+{
+  "name": "India Health Policy Parser - Multi Agent (Cloud)",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "policy-upload",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true
+        }
+      },
+      "id": "1",
+      "name": "Webhook Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        -220
+      ],
+      "webhookId": "policy-upload"
+    },
+    {
+      "parameters": {
+        "public": true,
+        "options": {
+          "allowFileUploads": true
+        }
+      },
+      "id": "2",
+      "name": "Chat Upload",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1600,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "path": "policy-context",
+        "httpMethod": "POST",
+        "responseMode": "responseNode"
+      },
+      "id": "3",
+      "name": "Context Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1600,
+        460
+      ],
+      "webhookId": "policy-context"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $json;\nconst item = {\n  file_meta: { filename: null, mime: null, size: null },\n  binary_property_name: 'file',\n  extracted_text: null,\n  scanner: {},\n  gap: {},\n  user_context: src.user_context || {},\n  policy_json: {},\n  text_hash: null,\n  entrypoint: src.entrypoint || 'webhook'\n};\n\nlet bin = $binary || {};\nif (item.entrypoint === 'chat') {\n  const keys = Object.keys(bin);\n  if (!keys.includes('file') && keys.length) {\n    bin.file = bin[keys[0]];\n  }\n}\nif (!bin.file) {\n  throw new Error('No binary file found in field \\'file\\'');\n}\nconst b = bin.file;\nitem.file_meta.filename = b.fileName || b.fileName || 'upload';\nitem.file_meta.mime = b.mimeType || 'application/octet-stream';\nitem.file_meta.size = b.fileSize || null;\n\nreturn { json: item, binary: { file: b } };"
+      },
+      "id": "4",
+      "name": "Normalize Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1320,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "output": "={{$json.file_meta.mime || ''}}",
+        "rules": [
+          {
+            "operation": "contains",
+            "value": "pdf"
+          },
+          {
+            "operation": "contains",
+            "value": "word"
+          }
+        ],
+        "fallbackOutput": 2
+      },
+      "id": "5",
+      "name": "File Type Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1120,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "file"
+      },
+      "id": "6",
+      "name": "Extract Text (Built-in)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "docx",
+        "binaryPropertyName": "file"
+      },
+      "id": "7",
+      "name": "Extract Text (Built-in) DOCX",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.file_meta.mime && $json.file_meta.mime.toLowerCase().includes('pdf') ? $env.PDF_TEXT_EXTRACT_URL : $env.DOCX_TEXT_EXTRACT_URL }}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "file",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "8",
+      "name": "Extract Text (External)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -700,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const out = { ...$json };\nconst t = ($json.text || $json.data || $json.extracted_text || '').toString();\nout.extracted_text = t;\nreturn { json: out, binary: $binary };"
+      },
+      "id": "9",
+      "name": "Merge Extracted Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -500,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const text = ($json.extracted_text || '').toString();\nconst likelyScan = /page\\s+\\d+\\s+of\\s+\\d+/i.test(text) || text.length < 500;\nreturn [{ json: { ...$json, ocr_needed: likelyScan } , binary: $binary }];"
+      },
+      "id": "10",
+      "name": "OCR Needed?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.ocr_needed}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "11",
+      "name": "OCR Branch (IF)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -120,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OCR_EXTRACT_URL}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "file",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "12",
+      "name": "OCR Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        80,
+        -160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const crypto = require('crypto');\nconst inText = ($json.text || $json.extracted_text || '').toString();\nconst lines = inText.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst freq = {};\nfor (const l of lines) freq[l] = (freq[l] || 0) + 1;\nconst cleaned = lines.filter(l => (freq[l] || 0) < 6).join('\\n').replace(/\\s{2,}/g, ' ').trim();\nconst capped = cleaned.slice(0, 120000);\nconst first12k = capped.slice(0, 12000);\nconst hash = crypto.createHash('sha256').update(capped).digest('hex');\nconst out = {\n  ...$json,\n  extracted_text: capped,\n  first_12000_chars: first12k,\n  text_hash: hash\n};\nconst sd = $getWorkflowStaticData('global');\nsd.pending = sd.pending || {};\nsd.pending[hash] = {\n  extracted_text: capped,\n  first_12000_chars: first12k,\n  file_meta: out.file_meta,\n  created_at: new Date().toISOString()\n};\nreturn { json: out, binary: $binary };"
+      },
+      "id": "13",
+      "name": "Sanitize & Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=You are Policy Scanner (India). Return strict JSON only. Input file_meta={{JSON.stringify($json.file_meta)}} text={{$json.first_12000_chars}}",
+        "hasOutputParser": true,
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "14",
+      "name": "Policy Scanner",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"detected\": {\n    \"is_health_insurance\": null,\n    \"country\": \"India\",\n    \"document_type\": null,\n    \"insurer_name\": null,\n    \"product_name\": null,\n    \"uin\": null,\n    \"plan_names_found\": [],\n    \"sum_insured_options_found\": [],\n    \"has_family_floater_terms\": null,\n    \"has_zone_terms\": null,\n    \"riders_or_addons_mentioned\": [],\n    \"key_sections_found\": {\n      \"waiting_periods\": null,\n      \"room_rent\": null,\n      \"pre_post_hosp\": null,\n      \"exclusions\": null\n    }\n  },\n  \"evidence\": [\n    { \"field\": null, \"snippet\": null, \"source_ref\": null }\n  ],\n  \"confidence\": { \"overall\": null, \"notes\": null }\n}"
+      },
+      "id": "15",
+      "name": "Scanner Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        500,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=You are Context Gap Detector. scanner={{JSON.stringify($json.output || $json.scanner || {})}} user_context={{JSON.stringify($json.user_context || {})}} Return strict JSON only.",
+        "hasOutputParser": true,
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "16",
+      "name": "Context Gap Detector",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"need_user_input\": null,\n  \"questions\": [\n    {\n      \"id\": null,\n      \"question\": null,\n      \"type\": \"single_select|multi_select|text|number|object\",\n      \"options\": [],\n      \"required\": null,\n      \"reason\": null\n    }\n  ],\n  \"assumptions_if_unanswered\": [\n    { \"field\": null, \"assumption\": null, \"risk\": \"low|medium|high\" }\n  ],\n  \"stop_condition\": \"ask_questions_then_resume|continue\"\n}"
+      },
+      "id": "17",
+      "name": "Gap Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        760,
+        -220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.output.need_user_input === true}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "18",
+      "name": "Needs Context? (IF)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        980,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const gap = $json.output || {};\nconst detected = $json.scanner?.detected || $json.detected || {};\nreturn [{ json: { status: 'needs_context', questions: gap.questions || [], detected, text_hash: $json.text_hash, entrypoint: $json.entrypoint } }];"
+      },
+      "id": "19",
+      "name": "Assemble Needs Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -180
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=You are Deep Extractor (India Policy -> Schema JSON). Return STRICT JSON matching schema exactly. Inputs: file_meta={{JSON.stringify($json.file_meta)}} scanner={{JSON.stringify($json.scanner || {})}} user_context={{JSON.stringify($json.user_context || {})}} extracted_text={{$json.extracted_text}}",
+        "hasOutputParser": true,
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "20",
+      "name": "Deep Extractor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"document_classification\": {\n    \"is_health_insurance\": null,\n    \"india_market\": true,\n    \"document_type\": null,\n    \"confidence\": { \"overall\": null, \"rationale\": null }\n  },\n  \"policy_metadata\": {\n    \"insurer_name\": null,\n    \"product_name\": null,\n    \"uin\": null,\n    \"plan_name\": null,\n    \"policy_type\": null,\n    \"individual_or_floater\": null,\n    \"policy_number\": null,\n    \"certificate_number\": null,\n    \"tpa_name\": null,\n    \"network\": {\n      \"cashless_available\": null,\n      \"network_name_or_partner\": null,\n      \"non_network_reimbursement_allowed\": null\n    },\n    \"policy_period\": { \"start_date\": null, \"end_date\": null },\n    \"geography\": { \"zone_or_city_tier\": null, \"india_state\": null, \"city\": null },\n    \"sum_insured\": { \"raw\": null, \"amount\": null, \"currency\": \"INR\", \"type\": null },\n    \"insured_members\": { \"count\": null, \"relationships\": null, \"entry_age_rules\": null }\n  },\n  \"premium_and_tax\": {\n    \"premium\": { \"raw\": null, \"amount\": null, \"currency\": \"INR\", \"frequency\": null },\n    \"gst_or_taxes\": { \"raw\": null, \"rate\": null },\n    \"loadings_or_discounts\": [\n      { \"type\": null, \"value\": null, \"conditions\": null, \"source_ref\": null }\n    ]\n  },\n  \"cost_sharing\": {\n    \"deductible\": { \"raw\": null, \"amount\": null, \"currency\": \"INR\", \"per\": null, \"notes\": null },\n    \"co_pay\": [\n      { \"trigger\": null, \"raw\": null, \"rate\": null, \"cap\": null, \"notes\": null, \"source_ref\": null }\n    ],\n    \"coinsurance\": [\n      { \"service\": null, \"raw\": null, \"rate\": null, \"notes\": null, \"source_ref\": null }\n    ]\n  },\n  \"waiting_periods\": {\n    \"initial_waiting_period\": { \"raw\": null, \"accident_exception\": null, \"source_ref\": null },\n    \"ped_waiting_period\": { \"raw\": null, \"definition_of_ped\": null, \"source_ref\": null },\n    \"maternity_waiting_period\": { \"raw\": null, \"source_ref\": null },\n    \"specific_disease_waiting_periods\": [\n      { \"condition_or_procedure\": null, \"raw\": null, \"source_ref\": null }\n    ]\n  },\n  \"limits_and_sublimits\": {\n    \"room_rent\": { \"raw\": null, \"type\": null, \"notes\": null, \"source_ref\": null },\n    \"icu_rent\": { \"raw\": null, \"type\": null, \"notes\": null, \"source_ref\": null },\n    \"procedure_or_disease_sublimits\": [\n      { \"item\": null, \"limit_raw\": null, \"notes\": null, \"source_ref\": null }\n    ],\n    \"ambulance_limit\": { \"limit_raw\": null, \"source_ref\": null },\n    \"ayush_limit\": { \"limit_raw\": null, \"source_ref\": null },\n    \"cataract_limit\": { \"limit_raw\": null, \"source_ref\": null },\n    \"opd_limit\": { \"limit_raw\": null, \"source_ref\": null },\n    \"annual_or_lifetime_limits\": [\n      { \"benefit\": null, \"limit_raw\": null, \"source_ref\": null }\n    ]\n  },\n  \"benefits\": {\n    \"hospitalization_inpatient\": { \"covered\": null, \"notes\": null, \"source_ref\": null },\n    \"pre_hospitalization\": { \"covered\": null, \"duration_raw\": null, \"source_ref\": null },\n    \"post_hospitalization\": { \"covered\": null, \"duration_raw\": null, \"source_ref\": null },\n    \"daycare\": { \"covered\": null, \"definition_or_list\": null, \"source_ref\": null },\n    \"domiciliary_hospitalization\": { \"covered\": null, \"conditions\": null, \"source_ref\": null },\n    \"modern_treatments\": { \"covered\": null, \"limits_or_list\": null, \"source_ref\": null },\n    \"organ_donor\": { \"covered\": null, \"limit_raw\": null, \"source_ref\": null },\n    \"maternity\": {\n      \"covered\": null,\n      \"limit_raw\": null,\n      \"newborn_covered\": null,\n      \"newborn_waiting_or_conditions\": null,\n      \"source_ref\": null\n    },\n    \"mental_health\": { \"covered\": null, \"notes\": null, \"source_ref\": null },\n    \"ayush\": { \"covered\": null, \"notes\": null, \"source_ref\": null },\n    \"health_checkups\": { \"covered\": null, \"frequency_raw\": null, \"limit_raw\": null, \"source_ref\": null },\n    \"vaccination\": { \"covered\": null, \"limit_raw\": null, \"source_ref\": null },\n    \"teleconsultation\": { \"covered\": null, \"limit_raw\": null, \"source_ref\": null },\n    \"restoration_or_reload\": {\n      \"available\": null,\n      \"type\": null,\n      \"conditions\": null,\n      \"usage_rules\": null,\n      \"source_ref\": null\n    },\n    \"no_claim_bonus\": {\n      \"available\": null,\n      \"accrual_raw\": null,\n      \"max_raw\": null,\n      \"reduction_rules\": null,\n      \"source_ref\": null\n    }\n  },\n  \"exclusions\": {\n    \"standard_exclusions\": [],\n    \"product_specific_exclusions\": [\n      { \"exclusion\": null, \"source_ref\": null }\n    ],\n    \"permanent_exclusions_or_ped_exclusions\": [\n      { \"item\": null, \"source_ref\": null }\n    ],\n    \"non_medical_items_consumables\": { \"covered_or_excluded\": null, \"notes\": null, \"source_ref\": null }\n  },\n  \"claims_and_admin\": {\n    \"cashless_process\": null,\n    \"reimbursement_process\": null,\n    \"claim_intimation_timeline\": null,\n    \"document_submission_timeline\": null,\n    \"claim_settlement_timeline\": null,\n    \"free_look_period\": null,\n    \"renewal_and_grace_period\": null,\n    \"portability\": null,\n    \"migration\": null,\n    \"cancellation_refund\": null,\n    \"customer_support\": {\n      \"insurer_helpline\": null,\n      \"tpa_helpline\": null,\n      \"email\": null,\n      \"website\": null,\n      \"address\": null\n    }\n  },\n  \"plan_variants\": [\n    {\n      \"variant_name\": null,\n      \"variant_identifier\": null,\n      \"sum_insured_options\": null,\n      \"cost_sharing_overrides\": null,\n      \"limits_overrides\": null,\n      \"benefit_overrides\": null,\n      \"waiting_period_overrides\": null,\n      \"notes\": null\n    }\n  ],\n  \"notes\": {\n    \"missing_or_unclear\": [],\n    \"conflicts\": [],\n    \"assumptions\": [],\n    \"extraction_warnings\": []\n  },\n  \"source_map\": [\n    {\n      \"field_path\": null,\n      \"evidence_snippet\": null,\n      \"source_ref\": null\n    }\n  ]\n}"
+      },
+      "id": "21",
+      "name": "Deep Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const policy = $json.output || $json.policy_json || {};\npolicy.notes = policy.notes || {};\npolicy.notes.missing_or_unclear = policy.notes.missing_or_unclear || [];\npolicy.notes.conflicts = policy.notes.conflicts || [];\npolicy.notes.assumptions = policy.notes.assumptions || [];\npolicy.notes.extraction_warnings = policy.notes.extraction_warnings || [];\nconst pct = (v)=>{\n  if (typeof v !== 'string') return v;\n  const m=v.match(/(\\d+(?:\\.\\d+)?)\\s*%/);\n  return m ? Number(m[1])/100 : v;\n};\nif (policy.premium_and_tax?.gst_or_taxes) policy.premium_and_tax.gst_or_taxes.rate = pct(policy.premium_and_tax.gst_or_taxes.rate);\nif (Array.isArray(policy.cost_sharing?.co_pay)) {\n  policy.cost_sharing.co_pay = policy.cost_sharing.co_pay.map(c=>({ ...c, rate: pct(c.rate || c.raw) }));\n}\nreturn [{ json: { ...$json, policy_json: policy } }];"
+      },
+      "id": "22",
+      "name": "Validator/Repair",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "23",
+      "name": "Respond (Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1880,
+        -60
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "sendMessage",
+        "message": "={{$json.status === 'needs_context' ? 'Need more details before parsing. Answer these questions: ' + (($json.questions || []).map((q,i) => (i + 1) + ') ' + q.question).join(' | ')) : 'Parsed policy: ' + ($json.policy_json?.policy_metadata?.insurer_name || 'Unknown insurer') + ' / ' + ($json.policy_json?.policy_metadata?.product_name || 'Unknown product')}}"
+      },
+      "id": "24",
+      "name": "Respond (Chat)",
+      "type": "@n8n/n8n-nodes-langchain.chat",
+      "typeVersion": 1,
+      "position": [
+        1880,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body || $json;\nconst hash = body.text_hash;\nconst user_context = body.user_context || {};\nconst sd = $getWorkflowStaticData('global');\nsd.pending = sd.pending || {};\nconst found = hash ? sd.pending[hash] : null;\nif (!found) {\n  return [{ json: { status: 'needs_file_resend', text_hash: hash || null } }];\n}\nreturn [{ json: {\n  file_meta: found.file_meta || {},\n  binary_property_name: 'file',\n  extracted_text: found.extracted_text || '',\n  first_12000_chars: found.first_12000_chars || '',\n  scanner: {},\n  gap: {},\n  user_context,\n  policy_json: {},\n  text_hash: hash,\n  entrypoint: 'context_webhook'\n} }];"
+      },
+      "id": "25",
+      "name": "Resume Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1320,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.status || ''}}",
+              "operation": "equals",
+              "value2": "needs_file_resend"
+            }
+          ]
+        }
+      },
+      "id": "26",
+      "name": "Needs Resend? (IF)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "if ($json.entrypoint === 'chat') return [{json:$json}];\nif ($json.status === 'needs_context') return [{json:$json}];\nreturn [{ json: { status: 'ok', policy: $json.policy_json, text_hash: $json.text_hash } }];"
+      },
+      "id": "27",
+      "name": "Assemble Final Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4.1-mini",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "id": "28",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        300,
+        -420
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_PLACEHOLDER",
+          "name": "OpenAI"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook Upload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Upload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resume Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Binary": {
+      "main": [
+        [
+          {
+            "node": "File Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Type Router": {
+      "main": [
+        [
+          {
+            "node": "Extract Text (Built-in)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text (Built-in) DOCX",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text (External)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (Built-in)": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (Built-in) DOCX": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (External)": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Extracted Text": {
+      "main": [
+        [
+          {
+            "node": "OCR Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Needed?": {
+      "main": [
+        [
+          {
+            "node": "OCR Branch (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Branch (IF)": {
+      "main": [
+        [
+          {
+            "node": "OCR Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sanitize & Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Fallback": {
+      "main": [
+        [
+          {
+            "node": "Sanitize & Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize & Hash": {
+      "main": [
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Policy Scanner": {
+      "main": [
+        [
+          {
+            "node": "Context Gap Detector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scanner Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Gap Detector": {
+      "main": [
+        [
+          {
+            "node": "Needs Context? (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gap Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Context Gap Detector",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Context? (IF)": {
+      "main": [
+        [
+          {
+            "node": "Assemble Needs Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Deep Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Needs Context": {
+      "main": [
+        [
+          {
+            "node": "Respond (Webhook)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond (Chat)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Extractor": {
+      "main": [
+        [
+          {
+            "node": "Validator/Repair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Deep Extractor",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validator/Repair": {
+      "main": [
+        [
+          {
+            "node": "Assemble Final Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Final Payload": {
+      "main": [
+        [
+          {
+            "node": "Respond (Webhook)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond (Chat)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Router": {
+      "main": [
+        [
+          {
+            "node": "Needs Resend? (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Resend? (IF)": {
+      "main": [
+        [
+          {
+            "node": "Respond (Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Context Gap Detector",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Deep Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "pinData": {},
+  "versionId": "1"
+}
