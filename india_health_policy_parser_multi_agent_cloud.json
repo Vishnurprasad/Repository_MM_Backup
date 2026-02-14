@@ -23,7 +23,8 @@
       "parameters": {
         "options": {
           "allowFileUploads": true
-        }
+        },
+        "responseMode": "responseNode"
       },
       "id": "chat_upload",
       "name": "Chat Upload",
@@ -36,7 +37,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = item.binary || {};\n  const fromWebhook = !!j.headers;\n  const fromChat = !fromWebhook;\n\n  let binaryPropertyName = 'file';\n  if (!b.file) {\n    const firstKey = Object.keys(b)[0];\n    if (firstKey) binaryPropertyName = firstKey;\n  }\n\n  const bin = b[binaryPropertyName] || {};\n  const filename = bin.fileName || bin.fileName || j.fileName || null;\n  const mime = bin.mimeType || j.mimeType || 'application/octet-stream';\n  const size = bin.fileSize || null;\n\n  out.push({\n    json: {\n      entrypoint: fromWebhook ? 'webhook' : 'chat',\n      file_meta: { filename, mime, size },\n      binary_property_name: binaryPropertyName,\n      extracted_text: null,\n      scanner: {},\n      gap: {},\n      user_context: j.user_context || {},\n      policy_json: {},\n      text_hash: null\n    },\n    binary: b\n  });\n}\nreturn out;"
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const j = item.json || {};\n  const b = item.binary || {};\n  const fromWebhook = !!j.headers;\n  const fromChat = !fromWebhook;\n\n  let binaryPropertyName = 'file';\n  if (!b.file) {\n    const firstKey = Object.keys(b)[0];\n    if (firstKey) binaryPropertyName = firstKey;\n  }\n\n  const bin = b[binaryPropertyName] || {};\n  const filename = bin.fileName || bin.file_name || bin.filename || j.fileName || j.file_name || j.filename || null;\n  let mime = bin.mimeType || bin.mime_type || j.mimeType || j.mime_type || null;\n  if (!mime && filename) {\n    const lower = String(filename).toLowerCase();\n    if (lower.endsWith('.pdf')) mime = 'application/pdf';\n    else if (lower.endsWith('.docx')) mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';\n  }\n  if (!mime) mime = 'application/octet-stream';\n  const size = bin.fileSize || null;\n\n  out.push({\n    json: {\n      entrypoint: fromWebhook ? 'webhook' : 'chat',\n      file_meta: { filename, mime, size },\n      binary_property_name: binaryPropertyName,\n      extracted_text: null,\n      scanner: {},\n      gap: {},\n      user_context: j.user_context || {},\n      policy_json: {},\n      text_hash: null\n    },\n    binary: b\n  });\n}\nreturn out;"
       },
       "id": "normalize_binary",
       "name": "Normalize Binary",
@@ -217,7 +218,7 @@
     },
     {
       "parameters": {
-        "jsCode": "function sanitize(text) {\n  const lines = String(text || '').split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\n  const freq = new Map();\n  for (const l of lines) freq.set(l, (freq.get(l) || 0) + 1);\n  const filtered = lines.filter(l => (freq.get(l) || 0) < 6);\n  return filtered.join('\\n').replace(/[\\t ]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nfunction rightRotate(value, amount) {\n  return (value >>> amount) | (value << (32 - amount));\n}\n\nfunction sha256(ascii) {\n  const mathPow = Math.pow;\n  const maxWord = mathPow(2, 32);\n  let result = '';\n  const words = [];\n  const asciiBitLength = ascii.length * 8;\n  let hash = sha256.h = sha256.h || [];\n  let k = sha256.k = sha256.k || [];\n  let primeCounter = k.length;\n\n  const isComposite = {};\n  for (let candidate = 2; primeCounter < 64; candidate++) {\n    if (!isComposite[candidate]) {\n      for (let i = 0; i < 313; i += candidate) {\n        isComposite[i] = candidate;\n      }\n      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;\n      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;\n    }\n  }\n\n  ascii += '\\x80';\n  while ((ascii.length % 64) - 56) ascii += '\\x00';\n  for (let i = 0; i < ascii.length; i++) {\n    const j = ascii.charCodeAt(i);\n    if (j >> 8) return null;\n    words[i >> 2] |= j << (((3 - i) % 4) * 8);\n  }\n  words[words.length] = ((asciiBitLength / maxWord) | 0);\n  words[words.length] = (asciiBitLength);\n\n  for (let j = 0; j < words.length;) {\n    const w = words.slice(j, (j += 16));\n    const oldHash = hash.slice(0);\n\n    for (let i = 0; i < 64; i++) {\n      const w15 = w[i - 15], w2 = w[i - 2];\n      const a = hash[0], e = hash[4];\n      const temp1 = hash[7]\n        + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25))\n        + ((e & hash[5]) ^ ((~e) & hash[6]))\n        + k[i]\n        + (w[i] = (i < 16) ? w[i] : (\n            w[i - 16]\n            + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3))\n            + w[i - 7]\n            + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))\n          ) | 0);\n      const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22))\n        + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));\n\n      hash = [(temp1 + temp2) | 0].concat(hash);\n      hash[4] = (hash[4] + temp1) | 0;\n      hash.pop();\n    }\n\n    for (let i = 0; i < 8; i++) {\n      hash[i] = (hash[i] + oldHash[i]) | 0;\n    }\n  }\n\n  for (let i = 0; i < 8; i++) {\n    for (let j = 3; j + 1; j--) {\n      const b = (hash[i] >> (j * 8)) & 255;\n      result += ((b < 16) ? 0 : '') + b.toString(16);\n    }\n  }\n  return result;\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const ocrText = j.text || j.data?.text || '';\n  const baseText = j.extracted_text || '';\n  const chosen = String(ocrText || baseText || '');\n  const cleaned = sanitize(chosen);\n  const capped = cleaned.slice(0, 120000);\n  const first_12000_chars = capped.slice(0, 12000);\n  const text_hash = sha256(capped) || null;\n  return {\n    json: {\n      ...j,\n      extracted_text: capped,\n      first_12000_chars,\n      text_hash\n    },\n    binary: item.binary\n  };\n});"
+        "jsCode": "const crypto = require('crypto');\n\nfunction sanitize(text) {\n  const lines = String(text || '').split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\n  const freq = new Map();\n  for (const l of lines) freq.set(l, (freq.get(l) || 0) + 1);\n  const filtered = lines.filter(l => (freq.get(l) || 0) < 6);\n  return filtered.join('\\n').replace(/[\\t ]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const ocrText = j.text || j.data?.text || '';\n  const baseText = j.extracted_text || '';\n  const chosen = String(ocrText || baseText || '');\n  const cleaned = sanitize(chosen);\n  const extracted_text = cleaned.slice(0, 120000);\n  const first_25000_chars = extracted_text.slice(0, 25000);\n  const text_hash = crypto.createHash('sha256').update(extracted_text, 'utf8').digest('hex');\n  return {\n    json: {\n      ...j,\n      extracted_text,\n      first_25000_chars,\n      text_hash\n    },\n    binary: item.binary\n  };\n});"
       },
       "id": "sanitize_hash",
       "name": "Sanitize & Hash",
@@ -253,7 +254,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are Policy Scanner (India). Input: first_12000_chars and file_meta. Return STRICT JSON only following the required schema.",
+        "text": "You are Policy Scanner (India). Input: first_25000_chars and file_meta. Return STRICT JSON only following the required schema.",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "Extract only what is present. Unknown => null. Country must be India."
@@ -345,7 +346,7 @@
           },
           "conditions": [
             {
-              "leftValue": "={{$json.need_user_input}}",
+              "leftValue": "={{$json.need_user_input === true || $json.gap?.need_user_input === true}}",
               "rightValue": true,
               "operator": {
                 "type": "boolean",
@@ -368,7 +369,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const data = this.getWorkflowStaticData('global');\nfor (const item of $input.all()) {\n  const key = item.json.text_hash;\n  if (key) {\n    data[key] = {\n      extracted_text: item.json.extracted_text,\n      file_meta: item.json.file_meta,\n      scanner: item.json.detected || item.json.scanner?.detected || {},\n      binary_property_name: item.json.binary_property_name,\n      saved_at: new Date().toISOString()\n    };\n  }\n}\nreturn $input.all();"
+        "jsCode": "const data = this.getWorkflowStaticData('global');\nfor (const item of $input.all()) {\n  const key = item.json.text_hash;\n  if (key) {\n    data[key] = {\n      extracted_text: item.json.extracted_text,\n      file_meta: item.json.file_meta,\n      scanner: item.json.scanner?.detected || item.json.detected || {},\n      binary_property_name: item.json.binary_property_name,\n      saved_at: new Date().toISOString()\n    };\n  }\n}\nreturn $input.all();"
       },
       "id": "store_pending",
       "name": "Store Pending Context",
@@ -381,7 +382,7 @@
     },
     {
       "parameters": {
-        "jsCode": "return $input.all().map((item)=>{\n  const questions = item.json.questions || [];\n  const payload = {\n    status: 'needs_context',\n    questions,\n    detected: item.json.detected || {},\n    text_hash: item.json.text_hash\n  };\n  return {json: {...item.json, response_payload: payload}};\n});"
+        "jsCode": "return $input.all().map((item)=>{\n  const questions = item.json.gap?.questions || item.json.questions || [];\n  const payload = {\n    status: 'needs_context',\n    questions,\n    detected: item.json.scanner?.detected || item.json.detected || {},\n    text_hash: item.json.text_hash\n  };\n  return {json: {...item.json, response_payload: payload}};\n});"
       },
       "id": "assemble_needs_context",
       "name": "Assemble Needs Context Response",
@@ -417,10 +418,10 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "Deep Extractor (India Policy -> Schema JSON). Use full extracted_text + file_meta + scanner.detected + user_context. Return JSON object only (no markdown, no prose). Use null for unknowns.",
-        "hasOutputParser": false,
+        "text": "Deep Extractor (India Policy -> Schema JSON). Use full extracted_text + file_meta + scanner.detected + user_context. Return STRICT JSON only matching the required schema.",
+        "hasOutputParser": true,
         "options": {
-          "systemMessage": "Output raw JSON only. Do not wrap in code fences. Prefer exact field names from downstream schema."
+          "systemMessage": "No hallucination. Unknown null. Use exact keys/types from schema. Output JSON only."
         }
       },
       "id": "deep_extractor",
@@ -551,12 +552,12 @@
     },
     {
       "parameters": {
-        "text": "={{$json.status === 'needs_context' ? 'Need more context before deep extraction. Please answer:\\n' + ($json.questions || []).map((q,i)=>`${i+1}. ${q.question}`).join('\\n') : `Parsed policy. Insurer/Product: ${$json.policy?.policy_metadata?.insurer_name || 'n/a'} / ${$json.policy?.policy_metadata?.product_name || 'n/a'}; SI: ${$json.policy?.policy_metadata?.sum_insured?.raw || 'n/a'}; Waiting: ${$json.policy?.waiting_periods?.initial_waiting_period?.raw || 'n/a'}; Room rent: ${$json.policy?.limits_and_sublimits?.room_rent?.raw || 'n/a'}`}}"
+        "message": "={{$json.status === 'needs_context' ? 'Need more context: ' + ($json.questions || []).map((q,i)=>`${i+1}) ${q.question}`).join(' | ') : `Parsed policy: ${$json.policy?.policy_metadata?.insurer_name || 'n/a'} / ${$json.policy?.policy_metadata?.product_name || 'n/a'}, SI: ${$json.policy?.policy_metadata?.sum_insured?.raw || 'n/a'}`}}"
       },
       "id": "respond_chat",
       "name": "Respond (Chat)",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "@n8n/n8n-nodes-langchain.respondToChat",
+      "typeVersion": 1.0,
       "position": [
         2680,
         120
@@ -621,6 +622,45 @@
         -860,
         420
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item)=>{\n  const out = { ...item.json };\n  out.scanner = {\n    detected: item.json.detected ?? item.json.scanner?.detected ?? null,\n    evidence: item.json.evidence ?? item.json.scanner?.evidence ?? [],\n    confidence: item.json.confidence ?? item.json.scanner?.confidence ?? null\n  };\n  return { json: out, binary: item.binary };\n});"
+      },
+      "id": "post_scanner_mapper",
+      "name": "Map Scanner Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item)=>{\n  const out = { ...item.json };\n  out.gap = {\n    need_user_input: item.json.need_user_input ?? item.json.gap?.need_user_input ?? null,\n    questions: item.json.questions ?? item.json.gap?.questions ?? [],\n    assumptions_if_unanswered: item.json.assumptions_if_unanswered ?? item.json.gap?.assumptions_if_unanswered ?? [],\n    stop_condition: item.json.stop_condition ?? item.json.gap?.stop_condition ?? null\n  };\n  return { json: out, binary: item.binary };\n});"
+      },
+      "id": "post_gap_mapper",
+      "name": "Map Gap Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item)=>{\n  const out = { ...item.json };\n  out.policy_json = item.json.policy_json ?? item.json.output ?? item.json;\n  return { json: out, binary: item.binary };\n});"
+      },
+      "id": "post_deep_mapper",
+      "name": "Map Deep Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        220
+      ]
     }
   ],
   "connections": {
@@ -668,7 +708,7 @@
         ],
         [
           {
-            "node": "Extract Text (Built-in)",
+            "node": "Extract Text (External)",
             "type": "main",
             "index": 0
           }
@@ -781,7 +821,7 @@
       "main": [
         [
           {
-            "node": "Context Gap Detector",
+            "node": "Map Scanner Output",
             "type": "main",
             "index": 0
           }
@@ -814,7 +854,7 @@
       "main": [
         [
           {
-            "node": "Needs Context? (IF)",
+            "node": "Map Gap Output",
             "type": "main",
             "index": 0
           }
@@ -876,7 +916,7 @@
       "main": [
         [
           {
-            "node": "Validator/Repair",
+            "node": "Map Deep Output",
             "type": "main",
             "index": 0
           }
@@ -957,6 +997,50 @@
         [
           {
             "node": "Deep Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Deep Extractor",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Scanner Output": {
+      "main": [
+        [
+          {
+            "node": "Context Gap Detector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Gap Output": {
+      "main": [
+        [
+          {
+            "node": "Needs Context? (IF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Deep Output": {
+      "main": [
+        [
+          {
+            "node": "Validator/Repair",
             "type": "main",
             "index": 0
           }
