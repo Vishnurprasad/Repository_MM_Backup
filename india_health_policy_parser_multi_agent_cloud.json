@@ -62,7 +62,7 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{$json.file_meta.mime}}",
+                    "leftValue": "={{$json.file_meta.mime + ' ' + ($json.file_meta.filename || '')}}",
                     "rightValue": "pdf",
                     "operator": {
                       "type": "string",
@@ -218,7 +218,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const crypto = require('crypto');\n\nfunction sanitize(text) {\n  const lines = String(text || '').split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\n  const freq = new Map();\n  for (const l of lines) freq.set(l, (freq.get(l) || 0) + 1);\n  const filtered = lines.filter(l => (freq.get(l) || 0) < 6);\n  return filtered.join('\\n').replace(/[\\t ]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const ocrText = j.text || j.data?.text || '';\n  const baseText = j.extracted_text || '';\n  const chosen = String(ocrText || baseText || '');\n  const cleaned = sanitize(chosen);\n  const extracted_text = cleaned.slice(0, 120000);\n  const first_25000_chars = extracted_text.slice(0, 25000);\n  const text_hash = crypto.createHash('sha256').update(extracted_text, 'utf8').digest('hex');\n  return {\n    json: {\n      ...j,\n      extracted_text,\n      first_25000_chars,\n      text_hash\n    },\n    binary: item.binary\n  };\n});"
+        "jsCode": "const crypto = require('crypto');\n\nfunction sanitize(text) {\n  const lines = String(text || '').split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\n  const freq = new Map();\n  for (const l of lines) freq.set(l, (freq.get(l) || 0) + 1);\n  const filtered = lines.filter(l => (freq.get(l) || 0) < 6);\n  return filtered.join('\\n').replace(/[\\t ]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nreturn $input.all().map((item) => {\n  const j = item.json || {};\n  const ocrText = j.text || j.data?.text || '';\n  const baseText = j.extracted_text || '';\n  const chosen = (ocrText && ocrText.length > baseText.length * 0.6) ? ocrText : baseText;\n  const cleaned = sanitize(chosen);\n  const extracted_text = cleaned.slice(0, 120000);\n  const first_25000_chars = extracted_text.slice(0, 25000);\n  const text_hash = crypto.createHash('sha256').update(extracted_text, 'utf8').digest('hex');\n  return {\n    json: {\n      ...j,\n      extracted_text,\n      first_25000_chars,\n      text_hash\n    },\n    binary: item.binary\n  };\n});"
       },
       "id": "sanitize_hash",
       "name": "Sanitize & Hash",
@@ -254,7 +254,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are Policy Scanner (India). Input: first_25000_chars and file_meta. Return STRICT JSON only following the required schema.",
+        "text": "You are Policy Scanner (India).\n\nFILE_META:\n{{$json.file_meta}}\n\nDOCUMENT TEXT:\n{{$json.first_25000_chars}}\n\nReturn STRICT JSON only following the required schema.",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "Extract only what is present. Unknown => null. Country must be India."
@@ -307,7 +307,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are Context Gap Detector. Ask minimum ranked questions only if needed.",
+        "text": "You are Context Gap Detector.\n\nSCANNER OUTPUT:\n{{$json.scanner.detected}}\n\nUSER CONTEXT:\n{{$json.user_context}}\n\nAsk minimum ranked questions only if needed. Return strict JSON only.",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "Use scanner output and user_context. Output strict JSON only."
@@ -418,7 +418,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "Deep Extractor (India Policy -> Schema JSON). Use full extracted_text + file_meta + scanner.detected + user_context. Return STRICT JSON only matching the required schema.",
+        "text": "Deep Extractor (India Policy -> Schema JSON).\n\nFILE_META:\n{{$json.file_meta}}\n\nSCANNER:\n{{$json.scanner.detected}}\n\nUSER_CONTEXT:\n{{$json.user_context}}\n\nDOCUMENT TEXT:\n{{$json.extracted_text}}\n\nReturn STRICT JSON only matching the required schema.",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "No hallucination. Unknown null. Use exact keys/types from schema. Output JSON only."
