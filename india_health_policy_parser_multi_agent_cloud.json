@@ -24,7 +24,7 @@
         "options": {
           "allowFileUploads": true
         },
-        "responseMode": "responseNode"
+        "responseMode": "lastNode"
       },
       "id": "chat_upload",
       "name": "Chat Upload",
@@ -552,12 +552,20 @@
     },
     {
       "parameters": {
-        "message": "={{$json.status === 'needs_context' ? 'Need more context: ' + ($json.questions || []).map((q,i)=>`${i+1}) ${q.question}`).join(' | ') : `Parsed policy: ${$json.policy?.policy_metadata?.insurer_name || 'n/a'} / ${$json.policy?.policy_metadata?.product_name || 'n/a'}, SI: ${$json.policy?.policy_metadata?.sum_insured?.raw || 'n/a'}`}}"
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "chat_message",
+              "value": "={{$json.status === 'needs_context' ? 'Need more context: ' + ($json.questions || []).map((q,i)=>`${i+1}) ${q.question}`).join(' | ') : `Parsed policy: ${$json.policy?.policy_metadata?.insurer_name || 'n/a'} / ${$json.policy?.policy_metadata?.product_name || 'n/a'}, SI: ${$json.policy?.policy_metadata?.sum_insured?.raw || 'n/a'}`}}"
+            }
+          ]
+        }
       },
       "id": "respond_chat",
       "name": "Respond (Chat)",
-      "type": "@n8n/n8n-nodes-langchain.respondToChat",
-      "typeVersion": 1.0,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
         2680,
         120
