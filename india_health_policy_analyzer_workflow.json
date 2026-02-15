@@ -1,0 +1,1260 @@
+{
+  "name": "India Health Policy Analyzer - Expert Architecture (Cloud v2.4.6)",
+  "nodes": [
+    {
+      "id": "1",
+      "name": "Webhook Upload",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        -260
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy-upload",
+        "responseMode": "responseNode",
+        "options": {
+          "binaryData": true
+        }
+      }
+    },
+    {
+      "id": "2",
+      "name": "Chat Upload",
+      "type": "n8n-nodes-base.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1400,
+        -60
+      ],
+      "parameters": {
+        "options": {
+          "allowFileUploads": true
+        },
+        "responseMode": "lastNode"
+      }
+    },
+    {
+      "id": "3",
+      "name": "Normalize Binary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1180,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of items) {\n  const json = item.json || {};\n  const binary = item.binary || {};\n  const binaryKey = Object.keys(binary)[0] || null;\n  const b = binaryKey ? binary[binaryKey] : null;\n  const filename = b?.fileName || json.fileName || json.filename || null;\n  const mime = b?.mimeType || json.mimeType || json.mimetype || null;\n  const size = b?.fileSize ? Number(b.fileSize) : (json.fileSize ? Number(json.fileSize) : null);\n  out.push({\n    json: {\n      entrypoint: json.sessionId || json.chatInput || json.message ? 'chat' : 'webhook',\n      file_meta: { filename, mime, size },\n      extracted_text: '',\n      first_25000_chars: '',\n      text_hash: null,\n      user_context: json.user_context || {},\n      doc_classification: {},\n      scanner: {},\n      gap: {},\n      chunks: [],\n      limits_text: '',\n      narrative_text: '',\n      limits_partial: {},\n      narrative_partial: {},\n      policy_json: {},\n      response_payload: null,\n      text: null\n    },\n    binary\n  });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "4",
+      "name": "File Type Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        -980,
+        -160
+      ],
+      "parameters": {
+        "mode": "expression",
+        "output": 3,
+        "dataType": "string",
+        "value1": "={{(($json.file_meta?.mime || '') + ' ' + ($json.file_meta?.filename || '')).toLowerCase()}}",
+        "rules": [
+          {
+            "operation": "contains",
+            "value2": "pdf"
+          },
+          {
+            "operation": "contains",
+            "value2": "docx"
+          }
+        ],
+        "fallbackOutput": 3
+      }
+    },
+    {
+      "id": "5",
+      "name": "Extract Text (Built-in PDF)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -780,
+        -320
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "={{Object.keys($binary)[0] || 'file'}}"
+      }
+    },
+    {
+      "id": "6",
+      "name": "Extract Text (External DOCX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -780,
+        -160
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.DOCX_TEXT_EXTRACT_URL}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "={{Object.keys($binary)[0] || 'file'}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "7",
+      "name": "Extract Text (External PDF)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -780,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PDF_TEXT_EXTRACT_URL}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "={{Object.keys($binary)[0] || 'file'}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "8",
+      "name": "Merge Extracted Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const t = item.json?.text || item.json?.data?.text || item.json?.extractedText || item.json?.extracted_text || '';\n  return { json: { ...item.json, extracted_text: typeof t === 'string' ? t : JSON.stringify(t || '') }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "9",
+      "name": "OCR Needed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -360,
+        -160
+      ],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.extracted_text || ''}}",
+              "operation": "shorter",
+              "value2": 500
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "10",
+      "name": "OCR Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        -260
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.OCR_EXTRACT_URL}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "={{Object.keys($binary)[0] || 'file'}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "11",
+      "name": "Sanitize & Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst staticData = $getWorkflowStaticData('global');\nreturn items.map(item => {\n  const baseText = String(item.json.extracted_text || '');\n  const ocrText = String(item.json.text || item.json.data?.text || item.json.extractedText || item.json.extracted_text_ocr || '');\n  const chosen = (ocrText && ocrText.length >= baseText.length * 0.6) ? ocrText : baseText;\n  const lines = chosen.split(/\\r?\\n/);\n  const freq = {};\n  for (const line of lines) {\n    const k = line.trim();\n    if (!k) continue;\n    freq[k] = (freq[k] || 0) + 1;\n  }\n  const cleaned = lines.filter(l => {\n    const k = l.trim();\n    if (!k) return true;\n    return (freq[k] || 0) < 8;\n  }).join('\\n').slice(0, 120000);\n  const text_hash = crypto.createHash('sha256').update(cleaned, 'utf8').digest('hex');\n  staticData.last_text_hash = text_hash;\n  return {\n    json: {\n      ...item.json,\n      extracted_text: cleaned,\n      first_25000_chars: cleaned.slice(0, 25000),\n      text_hash\n    },\n    binary: item.binary\n  };\n});"
+      }
+    },
+    {
+      "id": "12",
+      "name": "Document Type Classifier",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        260,
+        -160
+      ],
+      "parameters": {
+        "text": "You are the Document Type Classifier for Indian health insurance documents.\n\nROLE:\nYou are a FAST classification agent.\nYou do NOT perform deep extraction.\nYou only detect document type and high-level structural signals.\n\nINPUT\n\nFILE_META:\n{{$json.file_meta || $json.info || {}}}\n\nDOCUMENT TEXT (partial):\n{{$json.first_25000_chars || $json.extracted_text || ''}}\n\nTASK\n1) Determine whether this document relates to health insurance.\n\n2) Classify document_type as EXACTLY ONE of:\n- policy_wording\n- schedule_of_benefits\n- certificate_of_insurance\n- policy_schedule\n- brochure_or_marketing\n- renewal_notice\n- endorsement_or_addendum\n- claim_letter_or_claim_document\n- unknown\n\n3) Detect structural signals:\n- contains_plan_specific_data (policy number, insured members, selected sum insured, premium, dates)\n- is_generic_wording (legal wording applicable to multiple plans)\n- has_benefit_tables\n- has_premium_tables\n- is_marketing_document\n\n4) Extract anchors only if explicitly present:\n- insurer_name\n- product_name\n- uin (IRDAI Unique Identification Number)\n\nDISAMBIGUATION RULE\nIf the text indicates BOTH wording and schedule, choose:\n- policy_schedule if policy number/member list/premium/dates are present\n- otherwise policy_wording\n\nTYPE RULES\n- Booleans must be true/false (not strings)\n- confidence.overall is number 0..1\n- Unknown is null; do not omit keys\n\nEVIDENCE RULES\nEvidence array must have at least one object. If no snippet exists set snippet=null and explain reason.\n\nOUTPUT RULE (CRITICAL)\nReturn EXACTLY one JSON object. No markdown. No code fences. No extra text. Include ALL keys."
+      }
+    },
+    {
+      "id": "13",
+      "name": "Classifier Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        -340
+      ],
+      "parameters": {
+        "options": {
+          "temperature": 0
+        }
+      }
+    },
+    {
+      "id": "14",
+      "name": "Classifier Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        380,
+        -340
+      ],
+      "parameters": {
+        "jsonSchema": "={\"type\":\"object\",\"properties\":{\"is_health_insurance\":{\"type\":[\"boolean\",\"null\"]},\"document_type\":{\"type\":[\"string\",\"null\"]},\"contains_plan_specific_data\":{\"type\":[\"boolean\",\"null\"]},\"is_generic_wording\":{\"type\":[\"boolean\",\"null\"]},\"has_benefit_tables\":{\"type\":[\"boolean\",\"null\"]},\"has_premium_tables\":{\"type\":[\"boolean\",\"null\"]},\"is_marketing_document\":{\"type\":[\"boolean\",\"null\"]},\"insurer_name\":{\"type\":[\"string\",\"null\"]},\"product_name\":{\"type\":[\"string\",\"null\"]},\"uin\":{\"type\":[\"string\",\"null\"]},\"confidence\":{\"type\":\"object\",\"properties\":{\"overall\":{\"type\":\"number\"}},\"required\":[\"overall\"]},\"evidence\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"field\":{\"type\":\"string\"},\"snippet\":{\"type\":[\"string\",\"null\"]},\"reason\":{\"type\":\"string\"}},\"required\":[\"field\",\"snippet\",\"reason\"]}}},\"required\":[\"is_health_insurance\",\"document_type\",\"contains_plan_specific_data\",\"is_generic_wording\",\"has_benefit_tables\",\"has_premium_tables\",\"is_marketing_document\",\"insurer_name\",\"product_name\",\"uin\",\"confidence\",\"evidence\"]}"
+      }
+    },
+    {
+      "id": "15",
+      "name": "Map Classifier Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const parsed = item.json.output || item.json.result || item.json;\n  return {\n    json: {\n      ...item.json,\n      doc_classification: parsed\n    },\n    binary: item.binary\n  };\n});"
+      }
+    },
+    {
+      "id": "16",
+      "name": "Policy Scanner",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        700,
+        -160
+      ],
+      "parameters": {
+        "text": "You are the Policy Scanner Agent for Indian health insurance documents.\n\nYou are NOT doing full extraction. You only detect anchors for downstream routing.\n\nINPUTS\n\nFILE_META:\n{{$json.file_meta || $json.info || {}}}\n\nDOCUMENT TEXT:\n{{$json.first_25000_chars || $json.extracted_text || ''}}\n\nDO\n- Detect insurer_name, product_name, UIN if present\n- Detect plan_names_found, sum_insured_options_found (options only, not selected unless explicit)\n- Detect has_family_floater_terms, has_zone_terms, riders_or_addons_mentioned\n- Detect presence (not details) of sections: waiting_periods, room_rent, pre_post_hosp, exclusions\n- Provide evidence snippets where possible\n\nRULES\n- Only what is explicit; unknown => null\n- No hallucination\n- Return STRICT JSON only"
+      }
+    },
+    {
+      "id": "17",
+      "name": "Scanner Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        -340
+      ],
+      "parameters": {
+        "options": {
+          "temperature": 0.1
+        }
+      }
+    },
+    {
+      "id": "18",
+      "name": "Scanner Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        820,
+        -340
+      ],
+      "parameters": {
+        "jsonSchema": "={\"type\":\"object\",\"properties\":{\"detected\":{\"type\":\"object\",\"properties\":{\"insurer_name\":{\"type\":[\"string\",\"null\"]},\"product_name\":{\"type\":[\"string\",\"null\"]},\"uin\":{\"type\":[\"string\",\"null\"]},\"plan_names_found\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"sum_insured_options_found\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"has_family_floater_terms\":{\"type\":[\"boolean\",\"null\"]},\"has_zone_terms\":{\"type\":[\"boolean\",\"null\"]},\"riders_or_addons_mentioned\":{\"type\":[\"boolean\",\"null\"]},\"sections_present\":{\"type\":\"object\",\"properties\":{\"waiting_periods\":{\"type\":[\"boolean\",\"null\"]},\"room_rent\":{\"type\":[\"boolean\",\"null\"]},\"pre_post_hosp\":{\"type\":[\"boolean\",\"null\"]},\"exclusions\":{\"type\":[\"boolean\",\"null\"]}}}},\"required\":[\"insurer_name\",\"product_name\",\"uin\",\"plan_names_found\",\"sum_insured_options_found\",\"has_family_floater_terms\",\"has_zone_terms\",\"riders_or_addons_mentioned\",\"sections_present\"]},\"evidence\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}},\"confidence\":{\"type\":[\"number\",\"null\"]}},\"required\":[\"detected\",\"evidence\",\"confidence\"]}"
+      }
+    },
+    {
+      "id": "19",
+      "name": "Map Scanner Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const parsed = item.json.output || item.json.result || item.json;\n  return { json: { ...item.json, scanner: { detected: parsed.detected || {}, evidence: parsed.evidence || [], confidence: parsed.confidence ?? null } }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "20",
+      "name": "Context Gap Detector",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1140,
+        -160
+      ],
+      "parameters": {
+        "text": "You are the Context Gap Detector for Indian health insurance parsing.\n\nGoal: ask the fewest questions that materially change interpretation.\n\nINPUT\n\nCLASSIFIER:\n{{$json.doc_classification}}\n\nSCANNER:\n{{$json.scanner}}\n\nUSER_CONTEXT:\n{{$json.user_context}}\n\nASK MINIMUM QUESTIONS (ranked):\n1) selected sum insured (if multiple)\n2) selected plan variant (if multiple)\n3) individual vs floater (if ambiguous)\n4) ages (only if age-based copay suspected)\n5) renewal/continuous years (waiting periods)\n6) riders selected (only if riders mentioned)\n\nIf no questions needed: need_user_input=false and questions=[] and stop_condition=\"continue\".\n\nReturn STRICT JSON only."
+      }
+    },
+    {
+      "id": "21",
+      "name": "Gap Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -340
+      ],
+      "parameters": {
+        "options": {
+          "temperature": 0.1
+        }
+      }
+    },
+    {
+      "id": "22",
+      "name": "Gap Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1260,
+        -340
+      ],
+      "parameters": {
+        "jsonSchema": "={\"type\":\"object\",\"properties\":{\"need_user_input\":{\"type\":\"boolean\"},\"questions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"stop_condition\":{\"type\":\"string\"}},\"required\":[\"need_user_input\",\"questions\",\"stop_condition\"]}"
+      }
+    },
+    {
+      "id": "23",
+      "name": "Map Gap Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        -160
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => { const parsed = item.json.output || item.json.result || item.json; return { json: { ...item.json, gap: parsed }, binary: item.binary }; });"
+      }
+    },
+    {
+      "id": "24",
+      "name": "Needs Context?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1580,
+        -160
+      ],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.gap.need_user_input === true}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "25",
+      "name": "Store Pending Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        -280
+      ],
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nreturn items.map(item => {\n  const key = item.json.text_hash;\n  s.pending = s.pending || {};\n  s.pending[key] = {\n    extracted_text: item.json.extracted_text,\n    file_meta: item.json.file_meta,\n    doc_classification: item.json.doc_classification,\n    scanner: item.json.scanner\n  };\n  return { json: { ...item.json }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "26",
+      "name": "Assemble Needs Context Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        -280
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const questions = item.json.gap.questions || [];\n  const text_hash = item.json.text_hash;\n  let response_payload = null;\n  let text = null;\n  if (item.json.entrypoint === 'webhook') {\n    response_payload = { status: 'needs_context', text_hash, questions, detected: item.json.scanner?.detected || {} };\n  } else {\n    text = `Need more context: ${questions.join(' | ')}`;\n  }\n  return { json: { ...item.json, response_payload, text }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "27",
+      "name": "Entrypoint Router (Context)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2180,
+        -280
+      ],
+      "parameters": {
+        "mode": "expression",
+        "output": 2,
+        "dataType": "string",
+        "value1": "={{$json.entrypoint}}",
+        "rules": [
+          {
+            "operation": "equal",
+            "value2": "webhook"
+          }
+        ],
+        "fallbackOutput": 2
+      }
+    },
+    {
+      "id": "28",
+      "name": "Respond to Webhook (Needs Context)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2380,
+        -360
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json.response_payload}}"
+      }
+    },
+    {
+      "id": "29",
+      "name": "Final Chat Output (Needs Context)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2380,
+        -220
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => ({ json: { text: item.json.text || 'Need more context', status: 'needs_context', questions: item.json.gap?.questions || [], text_hash: item.json.text_hash } }));"
+      }
+    },
+    {
+      "id": "30",
+      "name": "Chunk by Section",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        0
+      ],
+      "parameters": {
+        "jsCode": "function mkChunks(text) {\n  const lines = String(text || '').split(/\\r?\\n/);\n  const chunks = [];\n  let current = { chunk_id: 'chunk_1', title: 'Document Start', text: '', start_line: 1 };\n  let id = 1;\n  for (let i = 0; i < lines.length; i++) {\n    const line = lines[i];\n    if (/^(section|clause|benefit|coverage|exclusion|waiting|room rent)/i.test(line.trim()) && current.text.length > 1000) {\n      chunks.push(current);\n      id += 1;\n      current = { chunk_id: `chunk_${id}`, title: line.trim().slice(0, 120) || `Chunk ${id}`, text: '', start_line: i + 1 };\n    }\n    current.text += (line + '\\n');\n  }\n  if (current.text.trim()) chunks.push(current);\n  return chunks;\n}\nreturn items.map(item => {\n  const chunks = mkChunks(item.json.extracted_text || '');\n  const limitsChunks = chunks.filter(c => /(limit|sum insured|room rent|copay|co-pay|sub limit|table)/i.test(c.title + ' ' + c.text.slice(0, 400)));\n  const narrativeChunks = chunks.filter(c => !limitsChunks.includes(c));\n  const limits_text = limitsChunks.map(c => c.text).join('\\n\\n').trim() || (item.json.extracted_text || '');\n  const narrative_text = narrativeChunks.map(c => c.text).join('\\n\\n').trim() || (item.json.extracted_text || '');\n  return { json: { ...item.json, chunks, limits_text, narrative_text }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "31",
+      "name": "Limits Extractor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1980,
+        -40
+      ],
+      "parameters": {
+        "text": "[Same as previously defined: Limits extractor prompt using {{$json.limits_text}}]"
+      }
+    },
+    {
+      "id": "32",
+      "name": "Limits Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1940,
+        -220
+      ],
+      "parameters": {
+        "options": {
+          "temperature": 0.1
+        }
+      }
+    },
+    {
+      "id": "33",
+      "name": "Limits Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        -220
+      ],
+      "parameters": {
+        "jsonSchema": "={\"type\":\"object\",\"properties\":{\"sum_insured\":{\"type\":[\"string\",\"null\"]},\"room_rent_limit\":{\"type\":[\"string\",\"null\"]},\"copay\":{\"type\":[\"string\",\"null\"]},\"sublimits\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}},\"notes\":{\"type\":\"object\",\"properties\":{\"conflicts\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}},\"required\":[\"sum_insured\",\"room_rent_limit\",\"copay\",\"sublimits\",\"notes\"]}"
+      }
+    },
+    {
+      "id": "34",
+      "name": "Map Limits Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        -40
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => ({ json: { ...item.json, limits_partial: item.json.output || item.json.result || item.json }, binary: item.binary }));"
+      }
+    },
+    {
+      "id": "35",
+      "name": "Narrative Extractor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1980,
+        140
+      ],
+      "parameters": {
+        "text": "[Same as previously defined: Narrative extractor prompt using {{$json.narrative_text}}]"
+      }
+    },
+    {
+      "id": "36",
+      "name": "Narrative Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1940,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "temperature": 0.1
+        }
+      }
+    },
+    {
+      "id": "37",
+      "name": "Narrative Structured Output",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "jsonSchema": "={\"type\":\"object\",\"properties\":{\"waiting_periods\":{\"type\":\"array\",\"items\":{\"type\":\"object\"}},\"exclusions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"pre_post_hospitalization\":{\"type\":\"object\"},\"notes\":{\"type\":\"object\",\"properties\":{\"conflicts\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}},\"required\":[\"waiting_periods\",\"exclusions\",\"pre_post_hospitalization\",\"notes\"]}"
+      }
+    },
+    {
+      "id": "38",
+      "name": "Map Narrative Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        140
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => ({ json: { ...item.json, narrative_partial: item.json.output || item.json.result || item.json }, binary: item.binary }));"
+      }
+    },
+    {
+      "id": "39",
+      "name": "Merge Limits+Narrative",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2380,
+        40
+      ],
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "position"
+      }
+    },
+    {
+      "id": "40",
+      "name": "Merge Partials + Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2580,
+        40
+      ],
+      "parameters": {
+        "jsCode": "const template = {\n  insurer_name: null,\n  product_name: null,\n  uin: null,\n  selected_sum_insured: null,\n  selected_variant: null,\n  policy_type: null,\n  room_rent_limit: null,\n  copay: null,\n  waiting_periods: [],\n  exclusions: [],\n  sublimits: [],\n  pre_post_hospitalization: {},\n  notes: { conflicts: [] }\n};\nreturn items.map(item => {\n  const limits = item.json.limits_partial || {};\n  const narrative = item.json.narrative_partial || {};\n  const combined = { ...limits, ...narrative };\n  const out = { ...template, ...combined, notes: { conflicts: [ ...(template.notes.conflicts || []), ...((limits.notes && limits.notes.conflicts) || []), ...((narrative.notes && narrative.notes.conflicts) || []) ] } };\n  if (item.json.user_context?.selected_sum_insured) out.selected_sum_insured = item.json.user_context.selected_sum_insured;\n  if (item.json.user_context?.selected_variant) out.selected_variant = item.json.user_context.selected_variant;\n  return { json: { ...item.json, policy_json: out }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "41",
+      "name": "Assemble Final Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2780,
+        40
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const p = item.json.policy_json || {};\n  const text = `Parsed policy: ${p.insurer_name || 'Unknown insurer'} / ${p.product_name || 'Unknown product'} / SI ${p.selected_sum_insured || p.sum_insured || 'NA'} / Room rent ${p.room_rent_limit || 'NA'} / PED wait ${(p.waiting_periods && p.waiting_periods[0]?.ped) || 'NA'}`;\n  return { json: { ...item.json, response_payload: { status: 'ok', text_hash: item.json.text_hash, policy: p }, text }, binary: item.binary };\n});"
+      }
+    },
+    {
+      "id": "42",
+      "name": "Entrypoint Router (Final)",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2980,
+        40
+      ],
+      "parameters": {
+        "mode": "expression",
+        "output": 2,
+        "dataType": "string",
+        "value1": "={{$json.entrypoint}}",
+        "rules": [
+          {
+            "operation": "equal",
+            "value2": "webhook"
+          }
+        ],
+        "fallbackOutput": 2
+      }
+    },
+    {
+      "id": "43",
+      "name": "Respond to Webhook (Final)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3180,
+        -20
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {status: $json.response_payload.status, text_hash: $json.response_payload.text_hash, policy: $json.response_payload.policy} }}"
+      }
+    },
+    {
+      "id": "44",
+      "name": "Final Chat Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3180,
+        120
+      ],
+      "parameters": {
+        "jsCode": "return items.map(item => ({ json: { text: item.json.text || 'Done', status: 'ok', policy: item.json.policy_json || {}, text_hash: item.json.text_hash } }));"
+      }
+    },
+    {
+      "id": "45",
+      "name": "Context Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1400,
+        320
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "policy-context",
+        "responseMode": "responseNode"
+      }
+    },
+    {
+      "id": "46",
+      "name": "Resume Router",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1180,
+        320
+      ],
+      "parameters": {
+        "jsCode": "const s = $getWorkflowStaticData('global');\nconst pending = s.pending || {};\nconst out = [];\nfor (const item of items) {\n  const body = item.json.body || item.json;\n  const text_hash = body.text_hash || null;\n  const user_context = body.user_context || {};\n  if (!text_hash || !pending[text_hash]) {\n    out.push({ json: { entrypoint: 'webhook', text_hash, response_payload: { status: 'needs_file_resend', text_hash, message: 'Unknown or expired text_hash. Please resend file.' } }, binary: item.binary });\n    continue;\n  }\n  const p = pending[text_hash];\n  out.push({\n    json: {\n      entrypoint: 'webhook',\n      file_meta: p.file_meta || { filename: null, mime: null, size: null },\n      extracted_text: p.extracted_text || '',\n      first_25000_chars: String(p.extracted_text || '').slice(0, 25000),\n      text_hash,\n      user_context,\n      doc_classification: p.doc_classification || {},\n      scanner: p.scanner || {},\n      gap: {},\n      chunks: [],\n      limits_text: '',\n      narrative_text: '',\n      limits_partial: {},\n      narrative_partial: {},\n      policy_json: {},\n      response_payload: null,\n      text: null\n    },\n    binary: item.binary\n  });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "47",
+      "name": "Resume Missing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -980,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.response_payload?.status || ''}}",
+              "operation": "equal",
+              "value2": "needs_file_resend"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "48",
+      "name": "Respond to Webhook (Resume Missing)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -780,
+        240
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json.response_payload}}"
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Upload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Upload": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Binary": {
+      "main": [
+        [
+          {
+            "node": "File Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Type Router": {
+      "main": [
+        [
+          {
+            "node": "Extract Text (Built-in PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text (External DOCX)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text (External PDF)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (Built-in PDF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (External DOCX)": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text (External PDF)": {
+      "main": [
+        [
+          {
+            "node": "Merge Extracted Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Extracted Text": {
+      "main": [
+        [
+          {
+            "node": "OCR Needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Needed?": {
+      "main": [
+        [
+          {
+            "node": "OCR Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sanitize & Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OCR Fallback": {
+      "main": [
+        [
+          {
+            "node": "Sanitize & Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize & Hash": {
+      "main": [
+        [
+          {
+            "node": "Document Type Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Type Classifier": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classifier Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_outputParser": [
+        [
+          {
+            "node": "Classifier Structured Output",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ],
+      "main": [
+        [
+          {
+            "node": "Map Classifier Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Classifier Output": {
+      "main": [
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Policy Scanner": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Scanner Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_outputParser": [
+        [
+          {
+            "node": "Scanner Structured Output",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ],
+      "main": [
+        [
+          {
+            "node": "Map Scanner Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Scanner Output": {
+      "main": [
+        [
+          {
+            "node": "Context Gap Detector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Gap Detector": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Gap Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_outputParser": [
+        [
+          {
+            "node": "Gap Structured Output",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ],
+      "main": [
+        [
+          {
+            "node": "Map Gap Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Gap Output": {
+      "main": [
+        [
+          {
+            "node": "Needs Context?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Context?": {
+      "main": [
+        [
+          {
+            "node": "Store Pending Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chunk by Section",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Pending Context": {
+      "main": [
+        [
+          {
+            "node": "Assemble Needs Context Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Needs Context Response": {
+      "main": [
+        [
+          {
+            "node": "Entrypoint Router (Context)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrypoint Router (Context)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Needs Context)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Chat Output (Needs Context)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk by Section": {
+      "main": [
+        [
+          {
+            "node": "Limits Extractor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Narrative Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limits Extractor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Limits Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_outputParser": [
+        [
+          {
+            "node": "Limits Structured Output",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ],
+      "main": [
+        [
+          {
+            "node": "Map Limits Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Narrative Extractor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Narrative Model",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_outputParser": [
+        [
+          {
+            "node": "Narrative Structured Output",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ],
+      "main": [
+        [
+          {
+            "node": "Map Narrative Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Limits Output": {
+      "main": [
+        [
+          {
+            "node": "Merge Limits+Narrative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Narrative Output": {
+      "main": [
+        [
+          {
+            "node": "Merge Limits+Narrative",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Limits+Narrative": {
+      "main": [
+        [
+          {
+            "node": "Merge Partials + Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Partials + Validate": {
+      "main": [
+        [
+          {
+            "node": "Assemble Final Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Final Output": {
+      "main": [
+        [
+          {
+            "node": "Entrypoint Router (Final)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entrypoint Router (Final)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Final)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Chat Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resume Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Router": {
+      "main": [
+        [
+          {
+            "node": "Resume Missing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Missing?": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (Resume Missing)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chunk by Section",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6cfa0876-bb15-4d9f-9f47-8d6de9a88c01",
+  "meta": {
+    "instanceId": "cloud-v246"
+  },
+  "id": "IndiaHealthPolicyAnalyzerExpertCloud246",
+  "tags": []
+}
