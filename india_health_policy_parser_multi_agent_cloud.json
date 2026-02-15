@@ -254,7 +254,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are the Policy Scanner Agent for Indian health insurance documents.\n\nYour job is NOT to fully extract benefits.\n\nYour job is to quickly scan the document and identify high-level anchors\nthat help downstream agents interpret the policy correctly.\n\nYou must ONLY detect information that is explicitly present in the text.\n\nIf something is unclear or not present, return null.\n\n--------------------------------------------------\nINPUTS\n--------------------------------------------------\n\nFILE_META:\n{{$json.file_meta}}\n\nDOCUMENT TEXT:\n{{$json.first_25000_chars}}\n\n--------------------------------------------------\nWHAT YOU MUST DO\n--------------------------------------------------\n\n1) Classify the document:\n\n- Is this a health insurance policy?\n- Identify document type:\n  - policy wording\n  - schedule of benefits\n  - certificate of insurance\n  - brochure\n  - claim letter\n  - unknown\n\n2) Identify policy anchors:\n\n- insurer name\n- product name\n- UIN (if present)\n- plan names or variants mentioned\n- sum insured options mentioned\n- whether family floater terms appear\n- whether zone/geography terms appear\n- riders/add-ons mentioned\n\n3) Detect presence (NOT details) of key sections:\n\n- waiting periods\n- room rent rules\n- pre/post hospitalization\n- exclusions\n\n4) Provide evidence snippets where possible.\n\n--------------------------------------------------\nIMPORTANT RULES (INDIA HEALTH INSURANCE)\n--------------------------------------------------\n\n- Indian policies often include multiple plan variants and sum insured tables.\n- Policy wording may contain generic limits \u2014 do not assume selected values.\n- Schedule or certificate sections override wording if clearly identified.\n\n--------------------------------------------------\nOUTPUT RULES\n--------------------------------------------------\n\n- Return STRICT JSON ONLY.\n- Do not include explanations outside JSON.\n- Unknown values MUST be null.\n- Never hallucinate.",
+        "text": "You are the Policy Scanner Agent for Indian health insurance documents.\n\nYour job is NOT to fully extract benefits.\n\nYour job is to quickly scan the document and identify high-level anchors\nthat help downstream agents interpret the policy correctly.\n\nYou must ONLY detect information that is explicitly present in the text.\n\nIf something is unclear or not present, return null.\n\n--------------------------------------------------\nINPUTS\n--------------------------------------------------\n\nFILE_META:\n{{$json.file_meta}}\n\nDOCUMENT TEXT:\n{{$json.first_25000_chars}}\n\n--------------------------------------------------\nWHAT YOU MUST DO\n--------------------------------------------------\n\n1) Classify the document:\n\n- Is this a health insurance policy?\n- Identify document type:\n  - policy wording\n  - schedule of benefits\n  - certificate of insurance\n  - brochure\n  - claim letter\n  - unknown\n\n2) Identify policy anchors:\n\n- insurer name\n- product name\n- UIN (if present)\n- plan names or variants mentioned\n- sum insured options mentioned\n- whether family floater terms appear\n- whether zone/geography terms appear\n- riders/add-ons mentioned\n\n3) Detect presence (NOT details) of key sections:\n\n- waiting periods\n- room rent rules\n- pre/post hospitalization\n- exclusions\n\n4) Provide evidence snippets where possible.\n\n--------------------------------------------------\nIMPORTANT RULES (INDIA HEALTH INSURANCE)\n--------------------------------------------------\n\n- Indian policies often include multiple plan variants and sum insured tables.\n- Policy wording may contain generic limits \u2014 do not assume selected values.\n- Schedule or certificate sections override wording if clearly identified.\n\n--------------------------------------------------\nOUTPUT RULES\n--------------------------------------------------\n\n- Return STRICT JSON ONLY.\n- Do not include explanations outside JSON.\n- Unknown values MUST be null.\n- Never hallucinate.\n\nDOCUMENT CLASSIFIER:\n{{$json.classifier}}",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "Extract only what is present. Unknown => null. Country must be India."
@@ -307,7 +307,7 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "You are Context Gap Detector.\n\nSCANNER OUTPUT:\n{{$json.scanner.detected}}\n\nUSER CONTEXT:\n{{$json.user_context}}\n\nAsk minimum ranked questions only if needed. Return strict JSON only.",
+        "text": "You are Context Gap Detector.\n\nDOCUMENT CLASSIFIER:\n{{$json.classifier}}\n\nSCANNER OUTPUT:\n{{$json.scanner.detected}}\n\nUSER CONTEXT:\n{{$json.user_context}}\n\nAsk minimum ranked questions only if needed. Return strict JSON only.",
         "hasOutputParser": true,
         "options": {
           "systemMessage": "Use scanner output and user_context. Output strict JSON only."
@@ -669,6 +669,201 @@
         1940,
         220
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function splitSections(text){\n  const headings=[/\\bbenefits?\\b/i,/\\bwaiting periods?\\b/i,/\\bexclusions?\\b/i,/\\bclaims?\\b/i,/\\bdefinitions?\\b/i,/\\bschedule\\b/i,/\\bsub-?limits?\\b/i,/\\broom rent\\b/i];\n  const lines=String(text||'').split(/\\r?\\n/);\n  const chunks=[];\n  let cur={title:'general',content:[]};\n  for(const line of lines){\n    const isHead=headings.some(r=>r.test(line.trim())) && line.trim().length<120;\n    if(isHead && cur.content.length){chunks.push({title:cur.title,text:cur.content.join('\\n')});cur={title:line.trim().toLowerCase(),content:[]};}\n    else cur.content.push(line);\n  }\n  if(cur.content.length)chunks.push({title:cur.title,text:cur.content.join('\\n')});\n  return chunks.filter(c=>c.text.trim());\n}\nreturn $input.all().map(item=>{\n  const t=item.json.extracted_text||'';\n  return {json:{...item.json,doc_text_full:t,doc_text_head:(item.json.first_25000_chars||t.slice(0,25000)),chunks:splitSections(t)},binary:item.binary};\n});"
+      },
+      "id": "chunk_by_sections",
+      "name": "Chunk by Sections",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "openai_chat_model_classifier",
+      "name": "OpenAI Chat Model (Classifier)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        640,
+        -300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_PLACEHOLDER",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Document Type Classifier (India Health).\\n\\nFILE_META:\\n{{$json.file_meta}}\\n\\nDOCUMENT HEAD:\\n{{$json.doc_text_head}}\\n\\nClassify quickly and return strict JSON only.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Detect doc type and schedule signals only. Unknown=>null/unknown. No hallucinations."
+        }
+      },
+      "id": "document_type_classifier",
+      "name": "Document Type Classifier",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        860,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"document_type\": \"unknown\",\n  \"is_health_insurance\": null,\n  \"has_benefit_table\": null,\n  \"has_schedule_fields\": null,\n  \"confidence\": { \"overall\": null, \"notes\": null },\n  \"evidence\": [\n    { \"field\": null, \"snippet\": null, \"source_ref\": null }\n  ]\n}"
+      },
+      "id": "classifier_parser",
+      "name": "Classifier Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        860,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item=>({json:{...item.json,classifier:{document_type:item.json.document_type??'unknown',is_health_insurance:item.json.is_health_insurance??null,has_benefit_table:item.json.has_benefit_table??null,has_schedule_fields:item.json.has_schedule_fields??null,confidence:item.json.confidence??null,evidence:item.json.evidence??[]}},binary:item.binary}));"
+      },
+      "id": "map_classifier_output",
+      "name": "Map Classifier Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Table & Limits Extractor (India).\\n\\nFILE_META:\\n{{$json.file_meta}}\\n\\nCLASSIFIER:\\n{{$json.classifier}}\\n\\nRELEVANT CHUNKS (tables/limits/schedule):\\n{{$json.chunks}}\\n\\nExtract only table/limits fields as strict JSON.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Focus on SI, room rent, ICU, sublimits, copay, deductible, waiting numbers. Unknown null."
+        }
+      },
+      "id": "table_limits_extractor",
+      "name": "Table & Limits Extractor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1580,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"policy_metadata\": {\n    \"sum_insured\": {\"raw\": null, \"amount\": null, \"currency\": \"INR\", \"type\": null}\n  },\n  \"cost_sharing\": {\n    \"deductible\": {\"raw\": null, \"amount\": null, \"currency\": \"INR\", \"per\": null, \"notes\": null},\n    \"co_pay\": [],\n    \"coinsurance\": []\n  },\n  \"waiting_periods\": {\n    \"initial_waiting_period\": {\"raw\": null, \"accident_exception\": null, \"source_ref\": null},\n    \"ped_waiting_period\": {\"raw\": null, \"definition_of_ped\": null, \"source_ref\": null}\n  },\n  \"limits_and_sublimits\": {\n    \"room_rent\": {\"raw\": null, \"type\": null, \"notes\": null, \"source_ref\": null},\n    \"icu_rent\": {\"raw\": null, \"type\": null, \"notes\": null, \"source_ref\": null},\n    \"procedure_or_disease_sublimits\": []\n  },\n  \"benefits\": {\n    \"restoration_or_reload\": {\"available\": null, \"type\": null, \"conditions\": null, \"usage_rules\": null, \"source_ref\": null},\n    \"no_claim_bonus\": {\"available\": null, \"accrual_raw\": null, \"max_raw\": null, \"reduction_rules\": null, \"source_ref\": null}\n  },\n  \"source_map\": []\n}"
+      },
+      "id": "table_parser",
+      "name": "Table Extractor Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1580,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item=>({json:{...item.json,table_json:item.json},binary:item.binary}));"
+      },
+      "id": "map_table_output",
+      "name": "Map Table Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Narrative Extractor (India).\\n\\nFILE_META:\\n{{$json.file_meta}}\\n\\nCLASSIFIER:\\n{{$json.classifier}}\\n\\nRELEVANT CHUNKS (exclusions/claims/definitions/conditions):\\n{{$json.chunks}}\\n\\nExtract only narrative clauses as strict JSON.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Focus exclusions, claims/admin timelines, cashless/reimbursement rules, portability, cancellation, definitions."
+        }
+      },
+      "id": "narrative_extractor",
+      "name": "Narrative Extractor",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.8,
+      "position": [
+        1580,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"exclusions\": {\n    \"standard_exclusions\": [\"example\"],\n    \"product_specific_exclusions\": [],\n    \"permanent_exclusions_or_ped_exclusions\": [],\n    \"non_medical_items_consumables\": {\"covered_or_excluded\": null, \"notes\": null, \"source_ref\": null}\n  },\n  \"claims_and_admin\": {\n    \"cashless_process\": null,\n    \"reimbursement_process\": null,\n    \"claim_intimation_timeline\": null,\n    \"document_submission_timeline\": null,\n    \"claim_settlement_timeline\": null,\n    \"free_look_period\": null,\n    \"renewal_and_grace_period\": null,\n    \"portability\": null,\n    \"migration\": null,\n    \"cancellation_refund\": null\n  },\n  \"notes\": {\"missing_or_unclear\": [\"x\"], \"conflicts\": [\"x\"], \"assumptions\": [\"x\"], \"extraction_warnings\": [\"x\"]},\n  \"source_map\": []\n}"
+      },
+      "id": "narrative_parser",
+      "name": "Narrative Extractor Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        1580,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item=>({json:{...item.json,narrative_json:item.json},binary:item.binary}));"
+      },
+      "id": "map_narrative_output",
+      "name": "Map Narrative Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "merge_extractor_outputs",
+      "name": "Merge Extractor Outputs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1940,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item=>{\n  const j=item.json||{};\n  const table=j.table_json||{};\n  const nar=j.narrative_json||{};\n  const classifier=j.classifier||{};\n  const merged={...table,...nar};\n  const conflicts=[];\n  if ((classifier.document_type==='schedule of benefits'||classifier.document_type==='certificate of insurance') && table?.policy_metadata?.sum_insured?.raw && nar?.policy_metadata?.sum_insured?.raw && table.policy_metadata.sum_insured.raw!==nar.policy_metadata.sum_insured.raw){\n    conflicts.push('Schedule/certificate SI differs from wording; schedule/certificate preferred');\n  }\n  merged.notes=merged.notes||{missing_or_unclear:[],conflicts:[],assumptions:[],extraction_warnings:[]};\n  merged.notes.conflicts=[...(merged.notes.conflicts||[]),...conflicts];\n  return {json:{...j,policy_json:merged},binary:item.binary};\n});"
+      },
+      "id": "merge_policy_json",
+      "name": "Merge Policy JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2120,
+        220
+      ]
     }
   ],
   "connections": {
@@ -796,7 +991,7 @@
       "main": [
         [
           {
-            "node": "Policy Scanner",
+            "node": "Chunk by Sections",
             "type": "main",
             "index": 0
           }
@@ -880,7 +1075,12 @@
         ],
         [
           {
-            "node": "Deep Extractor",
+            "node": "Table & Limits Extractor",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Narrative Extractor",
             "type": "main",
             "index": 0
           }
@@ -913,7 +1113,14 @@
       "ai_languageModel": [
         [
           {
-            "node": "Deep Extractor",
+            "node": "Table & Limits Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Narrative Extractor",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -1045,6 +1252,149 @@
       ]
     },
     "Map Deep Output": {
+      "main": [
+        [
+          {
+            "node": "Validator/Repair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk by Sections": {
+      "main": [
+        [
+          {
+            "node": "Document Type Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Classifier)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Document Type Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classifier Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Document Type Classifier",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Type Classifier": {
+      "main": [
+        [
+          {
+            "node": "Map Classifier Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Classifier Output": {
+      "main": [
+        [
+          {
+            "node": "Policy Scanner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Table Extractor Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Table & Limits Extractor",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Narrative Extractor Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Narrative Extractor",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Table & Limits Extractor": {
+      "main": [
+        [
+          {
+            "node": "Map Table Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Narrative Extractor": {
+      "main": [
+        [
+          {
+            "node": "Map Narrative Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Table Output": {
+      "main": [
+        [
+          {
+            "node": "Merge Extractor Outputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Narrative Output": {
+      "main": [
+        [
+          {
+            "node": "Merge Extractor Outputs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Extractor Outputs": {
+      "main": [
+        [
+          {
+            "node": "Merge Policy JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Policy JSON": {
       "main": [
         [
           {
