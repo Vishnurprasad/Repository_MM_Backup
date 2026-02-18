@@ -1,0 +1,232 @@
+{
+  "document_metadata": {
+    "insurer_name": null,
+    "product_name": null,
+    "policy_number": null,
+    "group_number": null,
+    "member_id_format": null,
+    "jurisdiction_or_country": null,
+    "language": null,
+    "effective_date": null,
+    "renewal_date": null,
+    "document_date": null,
+    "document_type": null,
+    "source_text": null
+  },
+  "plan_design": {
+    "plan_variant": null,
+    "plan_variants": [],
+    "network_type": null,
+    "is_hmo": null,
+    "is_ppo": null,
+    "is_epo": null,
+    "is_pos": null,
+    "referrals_required": null,
+    "pcp_required": null,
+    "prior_authorization_required_general": null,
+    "source_text": null
+  },
+  "financials": {
+    "currency": null,
+    "premium": {
+      "amount": null,
+      "frequency": null,
+      "source_text": null
+    },
+    "deductible": {
+      "individual_in_network": null,
+      "family_in_network": null,
+      "individual_out_of_network": null,
+      "family_out_of_network": null,
+      "notes": null,
+      "source_text": null
+    },
+    "out_of_pocket_max": {
+      "individual_in_network": null,
+      "family_in_network": null,
+      "individual_out_of_network": null,
+      "family_out_of_network": null,
+      "notes": null,
+      "source_text": null
+    },
+    "coinsurance": {
+      "in_network": null,
+      "out_of_network": null,
+      "notes": null,
+      "source_text": null
+    },
+    "copays": {
+      "primary_care_visit": {
+        "in_network": null,
+        "out_of_network": null,
+        "source_text": null
+      },
+      "specialist_visit": {
+        "in_network": null,
+        "out_of_network": null,
+        "source_text": null
+      },
+      "urgent_care": {
+        "in_network": null,
+        "out_of_network": null,
+        "source_text": null
+      },
+      "emergency_room": {
+        "in_network": null,
+        "out_of_network": null,
+        "source_text": null
+      },
+      "source_text": null
+    }
+  },
+  "coverage_summary": {
+    "preventive_care": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "primary_care": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "specialist_care": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "hospital_inpatient": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "hospital_outpatient": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "emergency_services": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "ambulance": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "prescription_drugs": {
+      "covered": null,
+      "formulary_reference": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "mental_health": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "maternity": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "rehabilitation": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    },
+    "lab_and_imaging": {
+      "covered": null,
+      "cost_share": null,
+      "notes": null,
+      "source_text": null
+    }
+  },
+  "limits_and_exclusions": {
+    "waiting_periods": [],
+    "benefit_limits": [],
+    "exclusions": [],
+    "general_notes": null,
+    "source_text": null
+  },
+  "claims_and_admin": {
+    "claims_submission_address": null,
+    "claims_submission_portal": null,
+    "customer_service_phone": null,
+    "customer_service_email": null,
+    "grievance_and_appeals": null,
+    "required_documents_for_claims": [],
+    "timely_filing_limit": null,
+    "source_text": null
+  },
+  "questions_to_user": [
+    {
+      "id": "Q1",
+      "field_path": "document_metadata.insurer_name",
+      "question": "What is the insurance company name on the policy document?",
+      "expected_answer_type": "string",
+      "choices": [],
+      "why_needed": "Insurer name is required to identify the policy correctly."
+    },
+    {
+      "id": "Q2",
+      "field_path": "document_metadata.effective_date",
+      "question": "What is the policy effective date (start date)?",
+      "expected_answer_type": "date",
+      "choices": [],
+      "why_needed": "The effective date is needed to determine when coverage starts."
+    },
+    {
+      "id": "Q3",
+      "field_path": "financials.deductible.individual_in_network",
+      "question": "What is the in-network individual deductible amount?",
+      "expected_answer_type": "number",
+      "choices": [],
+      "why_needed": "This is a core cost-sharing amount used in eligibility and cost calculations."
+    },
+    {
+      "id": "Q4",
+      "field_path": "financials.out_of_pocket_max.individual_in_network",
+      "question": "What is the in-network individual out-of-pocket maximum?",
+      "expected_answer_type": "number",
+      "choices": [],
+      "why_needed": "This is needed to cap annual member cost exposure."
+    },
+    {
+      "id": "Q5",
+      "field_path": "financials.copays.primary_care_visit.in_network",
+      "question": "Do you have an in-network primary care visit copay amount? If yes, provide the amount; if no copay applies, answer 0.",
+      "expected_answer_type": "number",
+      "choices": [],
+      "why_needed": "At least one common in-network cost-share signal is required for basic plan use."
+    }
+  ],
+  "confidence": {
+    "overall": 0.08,
+    "missing_critical_fields": [
+      "document_metadata.insurer_name",
+      "document_metadata.effective_date",
+      "financials.deductible.individual_in_network",
+      "financials.out_of_pocket_max.individual_in_network",
+      "financials.copays.primary_care_visit.in_network",
+      "financials.coinsurance.in_network"
+    ],
+    "flags": [
+      "not_a_contract_document",
+      "no_schedule_of_benefits_found",
+      "source_policy_text_missing"
+    ]
+  }
+}
